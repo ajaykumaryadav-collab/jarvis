@@ -1,0 +1,4 @@
+# This directory stores piper-tts voice models.
+# .onnx and .onnx.json files are gitignored — download them with:
+#
+#   python scripts/download_piper_voice.py
