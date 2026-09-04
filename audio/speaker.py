@@ -277,6 +277,11 @@ class Speaker:
     def stop(self) -> None:
         """Abort all audio output immediately. Call from shutdown handler."""
         shutdown_event.set()
+        try:
+            import winsound
+            winsound.PlaySound(None, winsound.SND_PURGE)
+        except Exception:
+            pass
         sd.stop()
         if self._pyttsx3_worker:
             self._pyttsx3_worker.stop()
@@ -285,88 +290,62 @@ class Speaker:
 
     def _speak_piper(self, text: str) -> None:
         """
-        Synthesise with piper then stream via sd.OutputStream chunked write.
-
-        Why OutputStream instead of sd.play():
-          sd.play() with an active InputStream silently drops audio on some
-          Windows PortAudio/WASAPI drivers. OutputStream.write() blocks per
-          chunk guaranteeing every sample is delivered, is interruptible via
-          shutdown_event, and never calls sd.stop() so the mic stays alive.
+        Synthesise with piper and play audio.
+        Uses winsound for Windows default device, or sounddevice for pinned devices.
         """
         try:
-            # ── 1. Synthesise raw 16-bit mono PCM ───────────────────────
-            raw_audio = b"".join(
-                self._piper_voice.synthesize_stream_raw(text)
-            )
-            if not raw_audio:
+            # PiperVoice.synthesize yields AudioChunk objects
+            chunks = list(self._piper_voice.synthesize(text))
+            if not chunks:
                 logger.warning("Piper returned empty audio.")
                 return
 
             if shutdown_event.is_set():
                 return
 
-            # ── 2. Convert int16 → float32 [-1, 1] ──────────────────────
-            audio_int16 = np.frombuffer(raw_audio, dtype=np.int16)
-            audio_float = audio_int16.astype(np.float32) / 32768.0
-
-            # ── 3. Stream via OutputStream in small chunks ───────────────
-            chunk_frames = 2048  # ~93 ms per chunk at 22050 Hz
             device = getattr(config, "AUDIO_OUTPUT_DEVICE", None)
-            with sd.OutputStream(
-                samplerate=self._piper_sample_rate,
-                channels=1,
-                dtype="float32",
-                device=device,
-            ) as out_stream:
 
-                offset = 0
-                total = len(audio_float)
-                while offset < total:
-                    if shutdown_event.is_set():
-                        break
-                    chunk = audio_float[offset : offset + chunk_frames]
-                    out_stream.write(chunk)  # blocks until buffer has room
-                    offset += len(chunk)
-                # Drain the PortAudio buffer so the last word isn't cut off
-                if not shutdown_event.is_set():
-                    out_stream.stop()
+            if device is not None:
+                # Stream through sounddevice OutputStream for pinned audio hardware
+                audio_float = np.concatenate([c.audio_float_array for c in chunks])
+                chunk_frames = 2048
+                with sd.OutputStream(
+                    samplerate=self._piper_sample_rate,
+                    channels=1,
+                    dtype="float32",
+                    device=device,
+                ) as out_stream:
+                    offset = 0
+                    total = len(audio_float)
+                    while offset < total and not shutdown_event.is_set():
+                        chunk = audio_float[offset : offset + chunk_frames]
+                        out_stream.write(chunk)
+                        offset += len(chunk)
+            else:
+                # Default Windows playback: package raw PCM into WAV and play via winsound
+                # This guarantees audio routes to whatever device Windows is currently using
+                raw_bytes = b"".join([c.audio_int16_bytes for c in chunks])
+                fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+                os.close(fd)
+                try:
+                    with wave.open(tmp_path, "wb") as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(self._piper_sample_rate)
+                        wf.writeframes(raw_bytes)
 
-
-        except AttributeError:
-            # Older piper-tts without synthesize_stream_raw → wave fallback
-            logger.debug("synthesize_stream_raw not found — using wave fallback.")
-            self._speak_piper_wave_fallback(text)
+                    if not shutdown_event.is_set():
+                        import winsound
+                        winsound.PlaySound(tmp_path, winsound.SND_FILENAME)
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception:
+                            pass
 
         except Exception as exc:
             logger.error("Piper TTS error: %s — switching to pyttsx3", exc)
-            self._backend = "pyttsx3"
-            if self._pyttsx3_worker is None:
-                self._start_pyttsx3_worker()
-            self._speak_pyttsx3(text)
-
-
-    def _speak_piper_wave_fallback(self, text: str) -> None:
-        """
-        Wave-file fallback for piper versions without synthesize_stream_raw.
-        Pre-configures all wave headers before calling synthesize() so the
-        'channels not specified' error cannot occur.
-        """
-        try:
-            import winsound
-            fd, tmp_path = tempfile.mkstemp(suffix=".wav")
-            os.close(fd)
-            try:
-                with wave.open(tmp_path, "wb") as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(self._piper_sample_rate)
-                    self._piper_voice.synthesize(text, wf)
-                winsound.PlaySound(tmp_path, winsound.SND_FILENAME)
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-        except Exception as exc:
-            logger.error("Piper wave fallback error: %s — switching to pyttsx3", exc)
             self._backend = "pyttsx3"
             if self._pyttsx3_worker is None:
                 self._start_pyttsx3_worker()

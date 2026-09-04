@@ -29,8 +29,8 @@ PIPER_VOICE_CONFIG: Path = PIPER_MODEL_DIR / "en_US-ryan-high.onnx.json"
 # openwakeword ships with a "hey_jarvis" model out of the box.
 # Set WAKE_WORD_THRESHOLD higher (0.6–0.9) to reduce false positives.
 WAKE_WORD_MODEL: str = "hey_jarvis"
-WAKE_WORD_THRESHOLD: float = 0.4   # lowered from 0.5 — easier to trigger
-
+WAKE_WORD_THRESHOLD: float = 0.22  # Lowered so normal, conversational speech triggers it effortlessly
+ 
 # ---------------------------------------------------------------------------
 # Audio Capture
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ SAMPLE_RATE: int = 16_000          # Hz — required by both openwakeword & Whis
 CHUNK_DURATION_MS: int = 80        # ms per audio frame fed to openwakeword
 SILENCE_THRESHOLD_SEC: float = 1.0  # seconds of silence before STT stops recording
 MAX_RECORD_SEC: float = 12.0        # hard cap — no command is longer than this
-MIC_GAIN: float = 5.0               # software mic amplification — raise if wake word misses, lower if distorted
+MIC_GAIN: float = 2.5               # Boosts quiet laptop mic to healthy level without clipping
 WAKE_WORD_COOLDOWN_SEC: float = 1.5 # pause after TTS finishes before accepting wake word again
 
 # ---------------------------------------------------------------------------

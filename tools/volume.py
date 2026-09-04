@@ -17,13 +17,12 @@ logger = logging.getLogger(__name__)
 
 def _get_master_volume_interface():
     """Return the pycaw AudioUtilities master volume interface."""
-    from ctypes import cast, POINTER
     from comtypes import CLSCTX_ALL  # type: ignore
     from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume  # type: ignore
 
     devices = AudioUtilities.GetSpeakers()
     interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(interface, POINTER(IAudioEndpointVolume))
+    return interface.QueryInterface(IAudioEndpointVolume)
 
 
 def get_volume() -> str:

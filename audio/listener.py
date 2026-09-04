@@ -41,6 +41,7 @@ class WakeWordListener:
         self._stream: Optional[sd.InputStream] = None
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
+        self._paused = False
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -73,8 +74,12 @@ class WakeWordListener:
         status: sd.CallbackFlags,
     ) -> None:
         """sounddevice calls this on every audio chunk (runs in audio thread)."""
+        if self._paused or shutdown_event.is_set():
+            return
+
         if status:
             logger.debug("Audio stream status: %s", status)
+
         # Apply software gain then clamp to prevent int16 overflow
         gained = np.clip(indata[:, 0] * config.MIC_GAIN, -1.0, 1.0)
         audio_int16 = (gained * 32767).astype(np.int16)
@@ -87,6 +92,14 @@ class WakeWordListener:
     # Inference worker
     # ------------------------------------------------------------------
 
+    def _drain_queue(self) -> None:
+        """Discard all pending frames from the audio queue."""
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
     def _inference_worker(self) -> None:
         """Background thread: drain the audio queue and run openwakeword."""
         logger.debug("Wake word inference worker started.")
@@ -94,12 +107,16 @@ class WakeWordListener:
         last_status_time = time.monotonic()
 
         while self._running:
+            if self._paused:
+                time.sleep(0.05)
+                continue
+
             try:
                 chunk = self._audio_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
-            if self._model is None:
+            if self._model is None or self._paused:
                 continue
 
             frame_count += 1
@@ -111,28 +128,27 @@ class WakeWordListener:
                 best = max(prediction.values()) if prediction else 0.0
                 rms  = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
                 logger.info(
-                    "Listening… score=%.3f (thresh=%.2f) | mic_rms=%.4f | frames=%d",
+                    "Listening… score=%.3f (thresh=%.2f) | mic_rms=%.1f | frames=%d",
                     best, config.WAKE_WORD_THRESHOLD, rms, frame_count,
                 )
-                if rms < 30:
+                if rms < 1.0:
                     logger.warning(
-                        "mic_rms is near-zero (%.1f) — mic may be muted, wrong device, "
-                        "or MIC_GAIN too low. Try increasing MIC_GAIN in config.py.",
+                        "mic_rms is near-zero (%.1f) — mic may be muted or wrong device.",
                         rms,
                     )
                 last_status_time = now
 
             for model_name, score in prediction.items():
-                if score >= config.WAKE_WORD_THRESHOLD:
+                if score >= config.WAKE_WORD_THRESHOLD and not self._paused:
                     logger.info(
-                        "Wake word '%s' detected! Score: %.3f", model_name, score
+                        "Wake word '%s' detected! Score: %.3f (thresh: %.2f)",
+                        model_name, score, config.WAKE_WORD_THRESHOLD,
                     )
                     self._model.reset()
                     self._detected_event.set()
                     break
 
         logger.debug("Wake word inference worker stopped.")
-
 
     # ------------------------------------------------------------------
     # Public API
@@ -144,9 +160,9 @@ class WakeWordListener:
             self.load()
 
         self._running = True
+        self._paused = False
         chunk_size = int(config.SAMPLE_RATE * config.CHUNK_DURATION_MS / 1000)
 
-        # Log which device sounddevice will use so we can spot wrong-device issues
         try:
             device_info = sd.query_devices(kind="input")
             logger.info(
@@ -177,12 +193,43 @@ class WakeWordListener:
         )
         self._worker_thread.start()
 
+    def pause(self) -> None:
+        """
+        Temporarily pause listening and stop mic stream.
+        Gives transcriber exclusive access to the mic without audio hardware contention.
+        """
+        self._paused = True
+        self._detected_event.clear()
+        if self._stream and self._stream.active:
+            try:
+                self._stream.stop()
+            except Exception as exc:
+                logger.debug("Error pausing mic stream: %s", exc)
+        self._drain_queue()
+
+    def resume(self) -> None:
+        """Resume listening for wake word with a fresh buffer."""
+        self._drain_queue()
+        self._detected_event.clear()
+        if self._model:
+            self._model.reset()
+        if self._stream and not self._stream.active and self._running:
+            try:
+                self._stream.start()
+            except Exception as exc:
+                logger.warning("Error restarting mic stream: %s", exc)
+        self._paused = False
+
     def stop(self) -> None:
         """Shut down mic stream and inference worker cleanly."""
         self._running = False
+        self._paused = True
         if self._stream:
-            self._stream.stop()
-            self._stream.close()
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
             self._stream = None
         if self._worker_thread:
             self._worker_thread.join(timeout=2.0)
@@ -191,10 +238,6 @@ class WakeWordListener:
     def wait_for_wake_word(self, timeout: Optional[float] = None) -> bool:
         """
         Poll until "Hey JARVIS" is detected, *timeout* elapses, or shutdown.
-
-        Uses short-interval polling instead of Event.wait(None) so that
-        KeyboardInterrupt / shutdown_event is checked on every iteration.
-        Returns True if detected, False on timeout or shutdown.
         """
         self._detected_event.clear()
         poll_interval = 0.5  # seconds between checks
@@ -202,7 +245,7 @@ class WakeWordListener:
 
         while not shutdown_event.is_set():
             triggered = self._detected_event.wait(timeout=poll_interval)
-            if triggered:
+            if triggered and not self._paused:
                 return True
             if timeout is not None:
                 elapsed += poll_interval
@@ -212,7 +255,9 @@ class WakeWordListener:
         return False  # shutdown signalled
 
     def reset(self) -> None:
-        """Clear detection state — call after each activation cycle."""
+        """Clear detection state and drain audio buffer."""
         self._detected_event.clear()
+        self._drain_queue()
         if self._model:
             self._model.reset()
+

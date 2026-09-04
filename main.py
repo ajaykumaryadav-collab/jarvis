@@ -39,6 +39,16 @@ from rich.panel import Panel
 from rich import print as rprint
 
 # ---------------------------------------------------------------------------
+# Terminal encoding setup for Windows
+# ---------------------------------------------------------------------------
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
 # Logging setup — must happen before importing our modules
 # ---------------------------------------------------------------------------
 logging.basicConfig(
@@ -234,6 +244,9 @@ def run_main_loop(
 
             console.print("[bold yellow]⚡ Wake word detected![/bold yellow]")
 
+            # Pause listener to avoid mic contention and stop recording JARVIS's own speech
+            listener.pause()
+
             # ── Step 2: Greet and prompt for input ──────────────────────
             speaker.speak(f"Yes, {config.USER_NAME}?")
             time.sleep(0.2)
@@ -246,11 +259,13 @@ def run_main_loop(
                 logger.error("Transcription failed: %s", exc)
                 speaker.speak("Sorry, I had trouble hearing that. Please try again.")
                 listener.reset()
+                listener.resume()
                 continue
 
             if not user_text.strip():
                 speaker.speak("I didn't catch that. Please try again.")
                 listener.reset()
+                listener.resume()
                 continue
 
             console.print(f"[bold white]You:[/bold white] {user_text}")
@@ -291,12 +306,13 @@ def run_main_loop(
             console.print(f"[bold cyan]JARVIS:[/bold cyan] {response}")
             speaker.speak(response)
 
-            # ── Step 6: Cooldown → reset → loop ──────────────────────────
+            # ── Step 6: Cooldown → reset → resume listening ──────────────
             # Wait for acoustic echo to die down, then hard-reset the
             # openwakeword model so TTS audio doesn't bleed into the next
             # detection window and cause missed or phantom wake words.
             time.sleep(config.WAKE_WORD_COOLDOWN_SEC)
-            listener.reset()          # clears detection event + model state
+            listener.reset()
+            listener.resume()
 
 
     except KeyboardInterrupt:
