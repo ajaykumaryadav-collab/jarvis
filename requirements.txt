@@ -90,3 +90,6 @@ rich==13.7.1                   # Pretty logging and status panels
 # Run the install command at the top of this file first.
 chromadb>=0.4.0
 pywin32>=306
+
+# Frontend communication
+websockets>=13.0

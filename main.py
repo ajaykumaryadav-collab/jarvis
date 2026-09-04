@@ -79,6 +79,7 @@ from audio import listener as _listener_module
 from audio import speaker as _speaker_module
 from core.agent import Agent
 from core.tool_dispatcher import ToolDispatcher
+from core import websocket_server
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +232,11 @@ async def _run_main_loop_async(
     The primary voice interaction loop:
     Listen → Wake → Transcribe → Think → Speak → Repeat
     """
+    # Start the websocket server in the background
+    asyncio.create_task(websocket_server.start_server())
+    
+    logger.info("Starting main event loop...")
+    
     listener.start()
     speaker.speak(
         f"JARVIS online. I'm listening for your wake word, {config.USER_NAME}."
@@ -246,8 +252,9 @@ async def _run_main_loop_async(
     try:
         while True:
             # ── Step 1: Wait for wake word ──────────────────────────────
-            detected = listener.wait_for_wake_word(timeout=None)
-            if not detected:
+            websocket_server.broadcast("LISTENING")
+            wake_detected = await asyncio.to_thread(listener.wait_for_wake_word, 0.5)
+            if not wake_detected:
                 continue
 
             console.print("[bold yellow]⚡ Wake word detected![/bold yellow]")
@@ -260,9 +267,11 @@ async def _run_main_loop_async(
             time.sleep(0.2)
 
             # ── Step 3: Transcribe user command ─────────────────────────
-            console.print("[cyan]Listening for command…[/cyan]")
+            logger.info("Listening for command…")
+            websocket_server.broadcast("RECORDING")
             try:
-                user_text = transcriber.listen_and_transcribe()
+                user_text = await asyncio.to_thread(transcriber.listen_and_transcribe)
+                listener.resume()
             except Exception as exc:
                 logger.error("Transcription failed: %s", exc)
                 speaker.speak("Sorry, I had trouble hearing that. Please try again.")
@@ -280,6 +289,7 @@ async def _run_main_loop_async(
 
             # ── Step 4: Process with Gemini (25s timeout) ────────────────
             try:
+                websocket_server.broadcast("THINKING")
                 try:
                     response = await asyncio.wait_for(agent.process(user_text), timeout=25.0)
                     consecutive_errors = 0
