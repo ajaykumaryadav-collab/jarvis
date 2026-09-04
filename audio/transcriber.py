@@ -59,6 +59,17 @@ class Transcriber:
             config.WHISPER_COMPUTE_TYPE,
         )
         try:
+            import sys
+            import os
+            if sys.platform == "win32":
+                try:
+                    import torch
+                    torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+                    if os.path.exists(torch_lib):
+                        os.add_dll_directory(torch_lib)
+                except Exception as e:
+                    logger.debug("Could not add torch lib to DLL path: %s", e)
+
             from faster_whisper import WhisperModel  # type: ignore
 
             self._model = WhisperModel(

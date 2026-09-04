@@ -42,7 +42,7 @@ def test_case(name):
 @test_case("1. Config & Environment Validation")
 def test_config():
     import config
-    assert config.USER_NAME == "Ajay", f"Unexpected USER_NAME: {config.USER_NAME}"
+    assert config.USER_NAME == "Arush", f"Unexpected USER_NAME: {config.USER_NAME}"
     assert config.WAKE_WORD_MODEL == "hey_jarvis"
     assert config.PIPER_VOICE_MODEL.exists(), f"Piper voice model missing at {config.PIPER_VOICE_MODEL}"
     assert config.PIPER_VOICE_CONFIG.exists(), f"Piper voice config missing at {config.PIPER_VOICE_CONFIG}"

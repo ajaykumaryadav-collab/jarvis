@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import os
 from pathlib import Path
+import win32com.client # Requires pywin32 to resolve lnk files
 
 import psutil  # type: ignore
 
@@ -20,6 +22,37 @@ import config
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_lnk_to_exe(lnk_path: str) -> str | None:
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortCut(lnk_path)
+        return shortcut.Targetpath
+    except Exception as e:
+        logger.debug(f"Failed to resolve shortcut {lnk_path}: {e}")
+        return None
+
+def _find_app_in_start_menu(name: str) -> str | None:
+    """Searches the Windows Start Menu for a shortcut matching the given name."""
+    start_menu_paths = [
+        Path(os.environ.get("ProgramData", "C:\\ProgramData")) / "Microsoft\\Windows\\Start Menu\\Programs",
+        Path(os.environ.get("APPDATA", "")) / "Microsoft\\Windows\\Start Menu\\Programs"
+    ]
+    
+    name_lower = name.lower()
+    
+    for menu_path in start_menu_paths:
+        if not menu_path.exists():
+            continue
+            
+        for path in menu_path.rglob("*.lnk"):
+            # Check if the filename contains the friendly name
+            if name_lower in path.stem.lower():
+                exe_path = _resolve_lnk_to_exe(str(path))
+                if exe_path and exe_path.lower().endswith(".exe"):
+                    return exe_path
+                    
+    return None
 
 def launch_app(name: str) -> str:
     """
@@ -39,21 +72,26 @@ def launch_app(name: str) -> str:
 
     exe_path = config.APP_MAP.get(name_lower)
 
-    # Fuzzy match: check if any key contains the search term
+    # Fuzzy match in fallback map
     if exe_path is None:
         for key, path in config.APP_MAP.items():
             if name_lower in key or key in name_lower:
                 exe_path = path
                 break
 
+    # Dynamic lookup in Start Menu
+    if exe_path is None:
+        logger.info(f"Looking up '{name}' dynamically in Start Menu...")
+        exe_path = _find_app_in_start_menu(name_lower)
+
     if exe_path is None:
         return (
             f"I don't know how to launch '{name}'. "
-            f"You can add it to APP_MAP in config.py."
+            f"I couldn't find it in the Start Menu or config.APP_MAP."
         )
 
     if not Path(exe_path).exists():
-        return f"Executable not found at '{exe_path}'. Please check the path in config.py."
+        return f"Executable not found at '{exe_path}'."
 
     try:
         subprocess.Popen([exe_path], shell=False)

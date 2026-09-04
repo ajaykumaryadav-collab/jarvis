@@ -5,124 +5,24 @@ Manages the conversation loop with the Gemini API, including:
   - Persistent multi-turn chat history (rolling window)
   - Tool/function-calling schema registration
   - Parsing Gemini's tool_call responses and forwarding to tool_dispatcher
-
-Architecture
-------------
-User utterance
-    → agent.process(text)
-        → Gemini API (with tool schemas + history)
-            → text response       → return to caller
-            → tool_call response  → tool_dispatcher.dispatch()
-                                  → result back to Gemini
-                                  → final text response → return to caller
+  - Async execution and parallel tool calling
+  - RAG Memory integration and Model Routing
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, Optional
 
+import google.generativeai as genai  # type: ignore
+import google.generativeai.protos as protos  # type: ignore
+
 import config
+from core.memory import Memory
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Gemini Tool Schemas
-# ---------------------------------------------------------------------------
-# Each entry maps to a function in tools/. Gemini uses these to decide when
-# to call a tool instead of generating a text response.
-
-TOOL_SCHEMAS = [
-    {
-        "name": "get_volume",
-        "description": "Get the current system audio volume level (0–100).",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "set_volume",
-        "description": "Set the system audio volume to a specific level.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "level": {
-                    "type": "integer",
-                    "description": "Volume level from 0 (mute) to 100 (max).",
-                }
-            },
-            "required": ["level"],
-        },
-    },
-    {
-        "name": "mute_volume",
-        "description": "Mute the system audio.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "unmute_volume",
-        "description": "Unmute the system audio.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "launch_app",
-        "description": "Launch an application by its friendly name (e.g., 'VS Code', 'Chrome', 'Spotify').",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Friendly application name."}
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "close_app",
-        "description": "Close/kill a running application by its process name.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Friendly app name or process name."}
-            },
-            "required": ["name"],
-        },
-    },
-    {
-        "name": "list_running_apps",
-        "description": "List currently running applications.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "get_system_info",
-        "description": "Get CPU usage, RAM stats, and GPU VRAM/temperature.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "read_clipboard",
-        "description": "Read and return the current clipboard text content.",
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "write_clipboard",
-        "description": "Write text to the Windows clipboard.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "text": {"type": "string", "description": "Text to write to clipboard."}
-            },
-            "required": ["text"],
-        },
-    },
-    {
-        "name": "search_web",
-        "description": "Search the web using DuckDuckGo and return a summary of the top results.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "The search query."}
-            },
-            "required": ["query"],
-        },
-    },
-]
 
 # ---------------------------------------------------------------------------
 # System Prompt
@@ -147,6 +47,9 @@ Safety Rules:
 - NEVER execute destructive actions without explicit user confirmation.
 - If a request seems risky or ambiguous, ask for clarification before acting.
 - You cannot access files or the filesystem beyond clipboard unless given a tool to do so.
+
+Routing Instructions:
+- If the user asks a complex coding question, requests heavy reasoning, or asks you to write a script, you MUST call the `delegate_to_pro` tool with their exact prompt. You are the fast flash model. Let the pro model handle the heavy lifting.
 """
 
 
@@ -158,24 +61,18 @@ class Agent:
     """Gemini-powered conversational agent with tool-calling support."""
 
     def __init__(self, tool_dispatcher) -> None:
-        """
-        Parameters
-        ----------
-        tool_dispatcher : ToolDispatcher
-            Instance used to execute tool calls returned by Gemini.
-        """
         self._dispatcher = tool_dispatcher
-        self._client = None
+        self._memory = Memory()
         self._chat = None
+        self._model = None
+        self._pro_model = None
 
     # ------------------------------------------------------------------
     # Initialisation
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """Authenticate with Gemini API and start a new chat session."""
-        import google.generativeai as genai  # type: ignore
-
+        """Authenticate with Gemini API, load memory, and start chat."""
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_gemini_api_key_here":
             raise ValueError(
@@ -183,11 +80,32 @@ class Agent:
             )
 
         genai.configure(api_key=api_key)
+        self._memory.load()
 
-        # Build Gemini-compatible tool declarations
-        tools = self._build_tools()
+        # Build tools dynamically from the dispatcher
+        tools = self._dispatcher.get_gemini_tools()
+        
+        # Add the router tool
+        router_tool = protos.FunctionDeclaration(
+            name="delegate_to_pro",
+            description="Delegate complex coding or reasoning tasks to the advanced Pro model.",
+            parameters=protos.Schema(
+                type=protos.Type.OBJECT,
+                properties={
+                    "query": protos.Schema(
+                        type=protos.Type.STRING,
+                        description="The full user query to send to the Pro model."
+                    )
+                },
+                required=["query"],
+            )
+        )
+        
+        # Extend the tools list with the router tool
+        if tools and isinstance(tools[0], protos.Tool):
+            tools[0].function_declarations.append(router_tool)
 
-        model = genai.GenerativeModel(
+        self._model = genai.GenerativeModel(
             model_name=config.GEMINI_MODEL,
             system_instruction=SYSTEM_PROMPT,
             tools=tools,
@@ -196,52 +114,26 @@ class Agent:
                 max_output_tokens=config.GEMINI_MAX_TOKENS,
             ),
         )
-        self._chat = model.start_chat(history=[])
+        
+        self._pro_model = genai.GenerativeModel(
+            model_name=config.PRO_GEMINI_MODEL,
+            system_instruction=SYSTEM_PROMPT,
+            # Pro model does not get OS tools in this architecture, only reasoning capability
+            generation_config=genai.GenerationConfig(
+                temperature=config.GEMINI_TEMPERATURE,
+            ),
+        )
+
+        self._chat = self._model.start_chat(history=[])
         logger.info("Gemini agent loaded ✓ (model: %s)", config.GEMINI_MODEL)
-
-    def _build_tools(self) -> list:
-        """Convert TOOL_SCHEMAS dicts into Gemini FunctionDeclaration objects."""
-        import google.generativeai.types as genai_types  # type: ignore
-        from google.generativeai import protos  # type: ignore
-
-        declarations = []
-        for schema in TOOL_SCHEMAS:
-            declarations.append(
-                protos.FunctionDeclaration(
-                    name=schema["name"],
-                    description=schema["description"],
-                    parameters=protos.Schema(
-                        type=protos.Type.OBJECT,
-                        properties={
-                            k: protos.Schema(
-                                type=protos.Type.STRING
-                                if v.get("type") == "string"
-                                else protos.Type.INTEGER,
-                                description=v.get("description", ""),
-                            )
-                            for k, v in schema["parameters"]
-                            .get("properties", {})
-                            .items()
-                        },
-                        required=schema["parameters"].get("required", []),
-                    ),
-                )
-            )
-        return [protos.Tool(function_declarations=declarations)]
 
     # ------------------------------------------------------------------
     # Main Process Method
     # ------------------------------------------------------------------
 
-    def process(self, user_text: str) -> str:
+    async def process(self, user_text: str) -> str:
         """
         Send *user_text* to Gemini and handle the response.
-
-        Handles multi-turn tool calling: if Gemini returns a function call,
-        the tool is dispatched, the result is fed back, and the cycle
-        repeats until a final text response is generated.
-
-        Returns the final spoken response string.
         """
         if self._chat is None:
             raise RuntimeError("Agent not loaded. Call load() first.")
@@ -250,48 +142,81 @@ class Agent:
             return "I didn't catch that. Could you repeat?"
 
         logger.info("User: '%s'", user_text)
+        
+        # Inject RAG Context (run in thread to avoid blocking event loop)
+        context = await asyncio.to_thread(self._memory.get_relevant_context, user_text)
+        augmented_prompt = f"{context}\n\nUser: {user_text}" if context else user_text
 
         try:
-            response = self._chat.send_message(user_text)
-            return self._handle_response(response)
+            # Enforce sliding window history
+            self._trim_history()
+            
+            response = await self._chat.send_message_async(augmented_prompt)
+            final_text = await self._handle_response(response)
+            
+            # Save to RAG memory in the background so it doesn't block TTS
+            asyncio.create_task(asyncio.to_thread(self._memory.add_turn, user_text, final_text))
+            return final_text
         except Exception as exc:
             logger.error("Gemini API error: %s", exc)
             return f"I encountered an error talking to Gemini: {exc}"
 
-    def _handle_response(self, response) -> str:
-        """
-        Recursively handle Gemini responses that may include tool calls.
-        """
-        # Check for function call parts
+    def _trim_history(self):
+        """Keep chat history within the CONVERSATION_HISTORY_LIMIT."""
+        if not self._chat:
+            return
+        # A turn is usually a user message + model response (2 parts)
+        max_items = config.CONVERSATION_HISTORY_LIMIT * 2
+        if len(self._chat.history) > max_items:
+            self._chat.history = self._chat.history[-max_items:]
+
+    async def _handle_response(self, response) -> str:
+        """Recursively handle tool calls, supporting parallel execution."""
+        tool_calls = []
         for part in response.parts:
             if hasattr(part, "function_call") and part.function_call.name:
-                fc = part.function_call
+                tool_calls.append(part.function_call)
+
+        if tool_calls:
+            function_responses = []
+            for fc in tool_calls:
                 tool_name = fc.name
                 tool_args = dict(fc.args) if fc.args else {}
-
                 logger.info("Gemini requested tool: %s(%s)", tool_name, tool_args)
-
-                # Dispatch the tool (safety gate is inside dispatcher)
-                tool_result = self._dispatcher.dispatch(tool_name, tool_args)
-
-                logger.info("Tool result: %s", str(tool_result)[:200])
-
-                # Send tool result back to Gemini for final response
-                import google.generativeai.protos as protos  # type: ignore
-
-                follow_up = self._chat.send_message(
-                    protos.Content(
-                        parts=[
-                            protos.Part(
-                                function_response=protos.FunctionResponse(
-                                    name=tool_name,
-                                    response={"result": str(tool_result)},
-                                )
-                            )
-                        ]
+                
+                # Check for Model Router
+                if tool_name == "delegate_to_pro":
+                    logger.info("Routing query to Pro model...")
+                    query = tool_args.get("query", "")
+                    try:
+                        # Send context to pro model too
+                        context = self._memory.get_relevant_context(query)
+                        pro_prompt = f"{context}\n\nUser: {query}" if context else query
+                        pro_response = await self._pro_model.generate_content_async(pro_prompt)
+                        result = pro_response.text
+                    except Exception as e:
+                        logger.error(f"Pro model failed: {e}")
+                        result = f"Error from Pro model: {e}"
+                else:
+                    # Normal OS tool dispatch
+                    # (Safety gate handles confirmation interactively)
+                    # We run this sync inside async - in a full rewrite we might run this in an executor
+                    result = self._dispatcher.dispatch(tool_name, tool_args)
+                
+                logger.info("Tool %s result: %s", tool_name, str(result)[:200])
+                
+                function_responses.append(
+                    protos.Part(
+                        function_response=protos.FunctionResponse(
+                            name=tool_name,
+                            response={"result": str(result)},
+                        )
                     )
                 )
-                return self._handle_response(follow_up)
+
+            # Send ALL tool results back at once
+            follow_up = await self._chat.send_message_async(protos.Content(parts=function_responses))
+            return await self._handle_response(follow_up)
 
         # Pure text response
         text = response.text.strip() if response.text else ""

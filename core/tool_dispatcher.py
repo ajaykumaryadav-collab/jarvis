@@ -16,8 +16,12 @@ Adding a new tool
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable
+
+import google.generativeai.types as genai_types
+from google.generativeai import protos
 
 from core import safety_gate
 from tools import (
@@ -127,3 +131,45 @@ class ToolDispatcher:
     def available_tools(self) -> list[str]:
         """Return the list of registered tool names."""
         return list(self._registry.keys())
+
+    def get_gemini_tools(self) -> list:
+        """Dynamically generate Gemini tool schemas from the Python function signatures."""
+        declarations = []
+        for name, func in self._registry.items():
+            sig = inspect.signature(func)
+            doc = inspect.getdoc(func) or ""
+            
+            properties = {}
+            required = []
+            
+            for param_name, param in sig.parameters.items():
+                # Default to string type if not specified
+                param_type = protos.Type.STRING
+                if param.annotation == int:
+                    param_type = protos.Type.INTEGER
+                elif param.annotation == float:
+                    param_type = protos.Type.NUMBER
+                elif param.annotation == bool:
+                    param_type = protos.Type.BOOLEAN
+                
+                properties[param_name] = protos.Schema(
+                    type=param_type,
+                    description=f"Parameter {param_name}" # In a full version, we'd parse docstring
+                )
+                
+                if param.default == inspect.Parameter.empty:
+                    required.append(param_name)
+                    
+            declarations.append(
+                protos.FunctionDeclaration(
+                    name=name,
+                    description=doc.split("\n")[0] if doc else f"Tool: {name}",
+                    parameters=protos.Schema(
+                        type=protos.Type.OBJECT,
+                        properties=properties,
+                        required=required,
+                    )
+                )
+            )
+            
+        return [protos.Tool(function_declarations=declarations)]

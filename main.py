@@ -27,7 +27,7 @@ Usage
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
+import asyncio
 import logging
 import os
 import sys
@@ -155,7 +155,7 @@ def run_smoke_test(
     # Test Gemini (simple text query, no tools)
     console.print("[cyan]Testing Gemini API…[/cyan]")
     try:
-        response = agent.process("Say 'JARVIS online' in exactly those two words.")
+        response = asyncio.run(agent.process("Say 'JARVIS online' in exactly those two words."))
         console.print(f"  [green]✓[/green] Gemini OK → '{response}'")
     except Exception as exc:
         errors.append(f"Gemini: {exc}")
@@ -204,7 +204,7 @@ def run_text_mode(speaker: Speaker, agent: Agent) -> None:
         if not user_input:
             continue
 
-        response = agent.process(user_input)
+        response = asyncio.run(agent.process(user_input))
         console.print(f"\n[bold cyan][JARVIS][/bold cyan] {response}\n")
         speaker.speak(response)
 
@@ -214,6 +214,14 @@ def run_text_mode(speaker: Speaker, agent: Agent) -> None:
 # ---------------------------------------------------------------------------
 
 def run_main_loop(
+    listener: WakeWordListener,
+    transcriber: Transcriber,
+    speaker: Speaker,
+    agent: Agent,
+) -> None:
+    asyncio.run(_run_main_loop_async(listener, transcriber, speaker, agent))
+
+async def _run_main_loop_async(
     listener: WakeWordListener,
     transcriber: Transcriber,
     speaker: Speaker,
@@ -272,15 +280,10 @@ def run_main_loop(
 
             # ── Step 4: Process with Gemini (25s timeout) ────────────────
             try:
-                # We do NOT use a 'with' block here. If we did, the context manager's
-                # __exit__ would block waiting for the hung thread to finish, defeating
-                # the timeout entirely and freezing the main loop.
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(agent.process, user_text)
                 try:
-                    response = future.result(timeout=25)
+                    response = await asyncio.wait_for(agent.process(user_text), timeout=25.0)
                     consecutive_errors = 0
-                except concurrent.futures.TimeoutError:
+                except asyncio.TimeoutError:
                     response = (
                         f"Sorry {config.USER_NAME}, I'm having trouble connecting to Gemini. "
                         "Please try again."
@@ -288,9 +291,6 @@ def run_main_loop(
                     logger.warning("Gemini API timed out after 25s — resetting history.")
                     agent.reset_history()
                     consecutive_errors += 1
-                finally:
-                    executor.shutdown(wait=False)
-
             except Exception as exc:
                 consecutive_errors += 1
                 logger.error("Agent error (%d): %s", consecutive_errors, exc)

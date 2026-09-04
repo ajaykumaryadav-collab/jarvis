@@ -11,7 +11,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # User Identity
 # ---------------------------------------------------------------------------
-USER_NAME: str = "Ajay"
+USER_NAME: str = "Arush"
 ASSISTANT_NAME: str = "JARVIS"
 
 # ---------------------------------------------------------------------------
@@ -84,9 +84,16 @@ PYTTSX3_VOLUME: float = 0.9
 # Gemini Flash → fast conversational responses
 # Switch to "gemini-1.5-pro" for complex multi-step reasoning
 GEMINI_MODEL: str = "gemini-3.6-flash"
+PRO_GEMINI_MODEL: str = "gemini-3.1-pro"    # Used by the Model Router for complex tasks
 GEMINI_MAX_TOKENS: int = 1024
 GEMINI_TEMPERATURE: float = 0.7
 CONVERSATION_HISTORY_LIMIT: int = 20  # max turns kept in memory
+
+# ---------------------------------------------------------------------------
+# RAG Memory
+# ---------------------------------------------------------------------------
+CHROMA_DB_PATH: Path = BASE_DIR / "data" / "chroma"
+
 
 # ---------------------------------------------------------------------------
 # Safety Gate — tools that require spoken confirmation before execution
@@ -102,18 +109,13 @@ GATED_TOOLS: set[str] = {
 SAFETY_GATE_TIMEOUT_SEC: float = 10.0
 
 # ---------------------------------------------------------------------------
-# Application Launcher — friendly name → executable
+# Application Launcher — fallback map (Dynamic resolution used primary)
 # ---------------------------------------------------------------------------
 APP_MAP: dict[str, str] = {
-    "vs code":      r"C:\Users\AJAY YADAV\AppData\Local\Programs\Microsoft VS Code\Code.exe",
-    "vscode":       r"C:\Users\AJAY YADAV\AppData\Local\Programs\Microsoft VS Code\Code.exe",
-    "chrome":       r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    "browser":      r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    "spotify":      r"C:\Users\AJAY YADAV\AppData\Roaming\Spotify\Spotify.exe",
     "notepad":      r"C:\Windows\System32\notepad.exe",
     "explorer":     r"C:\Windows\explorer.exe",
     "task manager": r"C:\Windows\System32\taskmgr.exe",
     "calculator":   r"C:\Windows\System32\calc.exe",
-    "terminal":     r"C:\Windows\System32\wt.exe",   # Windows Terminal
+    "terminal":     r"C:\Windows\System32\wt.exe",
     "powershell":   r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
 }
