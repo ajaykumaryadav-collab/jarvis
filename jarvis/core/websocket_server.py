@@ -21,7 +21,7 @@ Usage
     asyncio.create_task(websocket_server.start_server())
 
     # Broadcast a state change from anywhere (thread-safe):
-    websocket_server.broadcast("SPEAKING", text="Hello, Arush!")
+    websocket_server.broadcast("SPEAKING", text=f"Hello, {config.USER_NAME}!")
 """
 
 from __future__ import annotations

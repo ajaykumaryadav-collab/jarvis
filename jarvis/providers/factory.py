@@ -16,7 +16,7 @@ Usage (in main.py or core/agent.py):
 
     tts = create_tts_provider()   # Returns a TTSProvider
     tts.load()
-    tts.speak("Hello, Arush!")
+    tts.speak(f"Hello, {config.USER_NAME}!")
 
 Adding a new provider
 ---------------------
