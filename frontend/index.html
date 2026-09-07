@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            pointer-events: none; /* Let clicks pass through to canvas if needed */
+            margin-top: 350px;
+        }
+
+        h1 {
+            font-weight: 300;
+            letter-spacing: 2px;
+            font-size: 2rem;
+            margin: 0;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+            transition: color 0.3s ease;
+        }
+
+        p#status {
+            font-weight: 200;
+            color: #888;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            transition: color 0.3s ease;
+        }
+
+        .listening { color: #00ffff !important; text-shadow: 0 0 10px rgba(0, 255, 255, 0.5); }
+        .recording { color: #ff3366 !important; text-shadow: 0 0 10px rgba(255, 51, 102, 0.5); }
+        .thinking { color: #bb88ff !important; text-shadow: 0 0 10px rgba(187, 136, 255, 0.5); }
+        .speaking { color: #00ffaa !important; text-shadow: 0 0 10px rgba(0, 255, 170, 0.5); }
+
+    </style>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Simplex Noise for organic morphing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <h1 id="title" class="listening">JARVIS</h1>
+        <p id="status">CONNECTING...</p>
+    </div>
+
+    <script src="orb.js"></script>
+</body>
+</html>

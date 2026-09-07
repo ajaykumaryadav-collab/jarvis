@@ -54,7 +54,7 @@ def download_file(url: str, dest: Path) -> None:
                     pct = downloaded * 100 // total
                     print(f"\r  {dest.name}: {pct}%    ", end="", flush=True)
 
-    print(f"\r  ✓ {dest.name} ({downloaded / 1024:.0f} KB)")
+    print(f"\r  [OK] {dest.name} ({downloaded / 1024:.0f} KB)")
 
 
 def main() -> None:
@@ -63,13 +63,13 @@ def main() -> None:
     for filename in FILES:
         dest = OUTPUT_DIR / filename
         if dest.exists():
-            print(f"  ✓ {filename} already exists — skipping.")
+            print(f"  [OK] {filename} already exists — skipping.")
             continue
         url = f"{BASE_URL}/{filename}"
         try:
             download_file(url, dest)
         except Exception as exc:
-            print(f"\n  ✗ Failed to download {filename}: {exc}")
+            print(f"\n  [FAIL] Failed to download {filename}: {exc}")
             sys.exit(1)
 
     print(

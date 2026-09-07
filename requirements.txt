@@ -40,9 +40,56 @@ google-generativeai==0.7.2     # Official Gemini Python SDK
 duckduckgo-search==6.2.6       # No-API-key web search
 
 # --- Utilities ---------------------------------------------------------------
+# ==============================================================================
+# Project JARVIS — requirements.txt
+# Target: Windows 11, NVIDIA RTX 3050 (4 GB VRAM), CUDA 12.x
+# ==============================================================================
+#
+# !! IMPORTANT — Install PyTorch with CUDA BEFORE running pip install -r requirements.txt !!
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Then install this file:
+#   pip install -r requirements.txt
+#
+# ==============================================================================
+
+# --- Speech-to-Text (CUDA-accelerated) ---------------------------------------
+faster-whisper==1.1.0          # CTranslate2-based Whisper; ~0.6 GB VRAM (small/int8)
+
+# --- Wake Word Detection (CPU, ONNX) -----------------------------------------
+openwakeword==0.6.0            # Ships with "hey_jarvis" model; no API key needed
+
+# --- Text-to-Speech ----------------------------------------------------------
+piper-tts==1.4.2               # Offline neural TTS; download voice model separately
+pyttsx3==2.90                  # Fallback SAPI5 TTS (zero dependencies)
+
+# --- Audio I/O ---------------------------------------------------------------
+sounddevice==0.4.7             # Cross-platform mic capture & playback
+scipy==1.13.1                  # WAV read/write for piper audio output
+numpy==1.26.4                  # Audio array processing
+
+# --- Windows System Controls -------------------------------------------------
+pycaw==20240210                # Windows Core Audio API (volume control)
+psutil==6.0.0                  # Process management (list/kill apps)
+pynvml==11.5.0                 # NVIDIA GPU stats (VRAM, temperature)
+pyperclip==1.9.0               # Clipboard read/write
+
+# --- Intelligence Engine (Gemini API) ----------------------------------------
+google-generativeai==0.7.2     # Official Gemini Python SDK
+
+# --- Web Search Tool ---------------------------------------------------------
+duckduckgo-search==6.2.6       # No-API-key web search
+
+# --- Utilities ---------------------------------------------------------------
 python-dotenv==1.0.1           # Load .env into os.environ
 colorama==0.4.6                # Coloured terminal output (Windows-compatible)
 rich==13.7.1                   # Pretty logging and status panels
 
 # --- Note: PyTorch is NOT listed here because it requires a special index URL.
 # Run the install command at the top of this file first.
+chromadb>=0.4.0
+pywin32>=306
+
+# Frontend communication
+websockets>=13.0
