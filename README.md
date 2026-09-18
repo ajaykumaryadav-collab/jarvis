@@ -1,7 +1,13 @@
 # ⚡ Project JARVIS
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-ajaykumaryadav--collab%2Fjarvis-blue?logo=github)](https://github.com/ajaykumaryadav-collab/jarvis)
+[![Author](https://img.shields.io/badge/Author-Ajay%20Kumar%20Yadav-emerald?logo=github)](https://github.com/ajaykumaryadav-collab)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#)
+
 A fully local, hands-free hybrid AI desktop assistant for Windows 11.
-Built for Ajay — web programmer and college student.
+Developed by [Ajay Kumar Yadav](https://github.com/ajaykumaryadav-collab) — web programmer and CS student at VIT Vellore.
+
+🔗 **Direct GitHub Repository**: [https://github.com/ajaykumaryadav-collab/jarvis](https://github.com/ajaykumaryadav-collab/jarvis)
 
 ---
 
@@ -157,3 +163,14 @@ All settings are in [`config.py`](config.py):
 - [ ] Browser control (open tabs, search)
 - [ ] Timer and reminder system
 - [ ] Custom wake word model training
+
+---
+
+## 👨‍💻 Author & Projects
+
+- **Developer**: [Ajay Kumar Yadav](https://github.com/ajaykumaryadav-collab)
+- **GitHub Profile**: [https://github.com/ajaykumaryadav-collab](https://github.com/ajaykumaryadav-collab)
+- **Other Projects**:
+  - [🌍 CredTitans](https://github.com/ajaykumaryadav-collab/credtitans) — Multimodal AI-powered Land Intelligence & Verification System
+  - [📄 Digital Resume](https://github.com/ajaykumaryadav-collab/my-resume) — Interactive Developer Resume & Portfolio
+
