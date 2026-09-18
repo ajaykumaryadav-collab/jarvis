@@ -29,7 +29,7 @@ ASSISTANT_NAME: str = "JARVIS"
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-BASE_DIR: Path = Path(__file__).resolve().parent.parent  # d:/Projects/Jarvis
+BASE_DIR: Path = Path(__file__).resolve().parent.parent  # e:/projects/jarvis
 MODELS_DIR: Path = BASE_DIR / "models"
 PIPER_MODEL_DIR: Path = MODELS_DIR / "piper"
 PIPER_VOICE_MODEL: Path = PIPER_MODEL_DIR / "en_US-ryan-high.onnx"

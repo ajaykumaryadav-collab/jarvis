@@ -1,5 +1,5 @@
 # JARVIS — Next Steps Roadmap
-> Prepared: 2026-09-05 | Author: Antigravity
+> Prepared: 2026-09-05 | Author: Ajay Kumar Yadav
 
 ---
 

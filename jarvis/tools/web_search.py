@@ -33,7 +33,7 @@ def _search_fallback(query: str) -> str:
     try:
         import httpx  # type: ignore
 
-        headers = {"User-Agent": "JarvisAssistant/1.0 (github.com/doomsday-the/Jarvis)"}
+        headers = {"User-Agent": "JarvisAssistant/1.0 (github.com/ajaykumaryadav-collab/jarvis)"}
         search_url = "https://en.wikipedia.org/w/api.php"
 
         # Step 1: Find matching article titles
